@@ -12,8 +12,6 @@ from tkinter import filedialog, messagebox
 from ui.dialogs import ServerEnvironmentDialog, ProgressDialog, ConfirmationDialog
 from utils.file_utils import ensure_directory_exists
 
-
-
 class TopicUploadTask:
     def __init__(self, parent, on_upload_complete=None, on_folder_cleared=None):
         self.parent = parent
@@ -22,6 +20,7 @@ class TopicUploadTask:
         self.environment = None
         self.on_upload_complete = on_upload_complete  # Callback function
         self.on_folder_cleared = on_folder_cleared  # Callback function
+        self.current_upload_id = None  # Initialize as None
 
         # Regex patterns
         self.database_pattern = r'database-\d+-\w+-\d+\.zip'
@@ -29,7 +28,6 @@ class TopicUploadTask:
 
         # Initialize upload tracking database
         self.init_upload_db()
-
 
     def start_topic_upload(self):
         """Start the EEP Topic Upload process"""
@@ -63,8 +61,6 @@ class TopicUploadTask:
             )
             return
 
-        # No environment selection needed for Topic Upload
-
         # Start process with progress dialog
         progress_dialog = ProgressDialog(self.parent, "EEP Topic Upload")
         progress_dialog.set_status("Starting topic upload process...")
@@ -91,7 +87,7 @@ class TopicUploadTask:
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS uploads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                upload_timestamp TEXT NOT NULL,
+                upload_timestamp TEXT,
                 topic_month TEXT NOT NULL,
                 xml_files INTEGER NOT NULL,
                 images INTEGER NOT NULL,
@@ -123,18 +119,18 @@ class TopicUploadTask:
         except Exception as e:
             print(f"Error initializing upload database: {str(e)}")
             messagebox.showwarning("Database Warning",
-                                   "Could not initialize upload tracking database. History will not be saved.")
+                                 "Could not initialize upload tracking database. History will not be saved.")
 
     def log_upload_to_db(self, database_zip, images_zip):
         """Log upload metadata to SQLite database, but don't set timestamp yet"""
         conn = None
-        cursor = None
         try:
             # Extract information from filenames
             db_match = re.search(r'database-(\d+)-(\w+)-(\d+)\.zip', database_zip, re.IGNORECASE)
             img_match = re.search(r'(\d+)-(\w+)-(\d+)-images\.zip', images_zip, re.IGNORECASE)
 
             if not db_match or not img_match:
+                print("Error: Could not extract date information from filenames")
                 return None
 
             # Verify month names match
@@ -162,7 +158,7 @@ class TopicUploadTask:
             image_count = 0
             with zipfile.ZipFile(images_zip, 'r') as zip_ref:
                 image_count = len([f for f in zip_ref.namelist()
-                                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))])
+                               if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))])
 
             db_file = os.path.join("Topic Upload History", "topic_uploads.db")
             conn = sqlite3.connect(db_file)
@@ -184,17 +180,163 @@ class TopicUploadTask:
 
             conn.commit()
             upload_id = cursor.lastrowid
+            print(f"Successfully logged upload to database with ID: {upload_id}")
             return upload_id
 
         except Exception as e:
             print(f"Error logging upload to database: {str(e)}")
+            messagebox.showerror("Database Error", f"Failed to log upload to database: {str(e)}")
             return None
         finally:
-            if cursor:
-                cursor.close()
             if conn:
                 conn.close()
 
+    def process_zip_files(self, database_zip, images_zip, progress_dialog):
+        """Process the ZIP files and perform the necessary tasks"""
+        try:
+            # Extract files directly to working folder
+            progress_dialog.set_status("Extracting database ZIP file...")
+            with zipfile.ZipFile(database_zip, 'r') as zip_ref:
+                zip_ref.extractall(self.working_folder)
+
+            progress_dialog.set_status("Extracting images ZIP file...")
+            with zipfile.ZipFile(images_zip, 'r') as zip_ref:
+                zip_ref.extractall(self.working_folder)
+
+            # Process database XML files
+            progress_dialog.set_status("Processing database XML files...")
+            database_output = os.path.join(self.working_folder, "database.zip")
+            self.process_database_files(self.working_folder, database_output)
+
+            # Process image files
+            progress_dialog.set_status("Processing image files...")
+            images_output = os.path.join(self.working_folder, "images.zip")
+            self.process_image_files(self.working_folder, images_output)
+
+            # Copy files to server location
+            progress_dialog.set_status("Copying files to server...")
+            if not self.copy_files_to_server(database_output, images_output):
+                progress_dialog.destroy()
+                messagebox.showerror("Error", "Failed to copy files to server location. Please check the path exists.")
+                return
+
+            # Log the upload to database before showing success message
+            upload_id = self.log_upload_to_db(database_zip, images_zip)
+            if upload_id is None:
+                progress_dialog.destroy()
+                messagebox.showerror("Error", "Failed to log upload to database.")
+                return
+
+            self.current_upload_id = upload_id  # Store the upload ID for later use
+
+            progress_dialog.destroy()
+
+            if self.on_upload_complete:
+                self.on_upload_complete()
+
+            # Ask user if they want to run the filter task
+            run_filter = messagebox.askyesno(
+                "Success",
+                "Files have been copied to server. Do you want to run the filter job now?"
+            )
+
+            if run_filter:
+                self.run_filter_job()
+            else:
+                messagebox.showinfo("Success", "Files have been copied to server. You can run the filter job later.")
+                # Since we're not running filter now, we should still save the upload record
+                self.mark_filter_complete(self.current_upload_id, completed=False)
+
+        except Exception as e:
+            progress_dialog.destroy()
+            messagebox.showerror("Error", f"An error occurred during the process:\n{str(e)}")
+
+    def mark_filter_complete(self, upload_id, completed=True):
+        """Mark the upload as having completed filter processing in the database"""
+        try:
+            db_file = os.path.join("Topic Upload History", "topic_uploads.db")
+            if not os.path.exists(db_file):
+                print("Database file does not exist")
+                return False
+
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+
+            if completed:
+                # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute('''
+                UPDATE uploads 
+                SET upload_timestamp = ?, 
+                    filter_completed = 1 
+                WHERE id = ?
+                ''', (timestamp, upload_id))
+            else:
+                # Just mark as not completed (filter wasn't run)
+                cursor.execute('''
+                UPDATE uploads 
+                SET filter_completed = 0 
+                WHERE id = ?
+                ''', (upload_id,))
+
+            conn.commit()
+            print(f"Successfully marked upload {upload_id} as {'complete' if completed else 'incomplete'}")
+            return True
+
+        except sqlite3.Error as e:
+            print(f"Database error marking filter complete: {str(e)}")
+            messagebox.showerror("Database Error", f"Failed to update database: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"General error in mark_filter_complete: {str(e)}")
+            return False
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+    def monitor_filter_process(self):
+        """Monitor the filter process and show appropriate completion message"""
+        try:
+            return_code = self.filter_process.wait()  # Wait for process to complete
+            was_manually_closed = return_code != 0
+
+            # Show appropriate message (using after to ensure it runs in main thread)
+            if hasattr(self.parent, 'after'):
+                if was_manually_closed:
+                    self.parent.after(0, lambda: messagebox.showwarning(
+                        "Filter Job Interrupted",
+                        "The filter task was stopped before completion.\n\n"
+                        "If you closed the window manually, please run the filter job again "
+                        "and let it complete normally."
+                    ))
+                else:
+                    # Only mark as complete if the filter job succeeded
+                    if self.current_upload_id is not None:
+                        success = self.mark_filter_complete(self.current_upload_id)
+                        if not success:
+                            self.parent.after(0, lambda: messagebox.showwarning(
+                                "Warning",
+                                "Filter completed but failed to update database record."
+                            ))
+                        self.current_upload_id = None  # Clean up
+
+                    self.parent.after(0, lambda: messagebox.showinfo(
+                        "Filter Job Complete",
+                        "The filter task has completed successfully."
+                    ))
+        except Exception as e:
+            print(f"Error monitoring filter process: {str(e)}")
+            if hasattr(self.parent, 'after'):
+                self.parent.after(0, lambda: messagebox.showerror(
+                    "Error",
+                    f"An error occurred while monitoring the filter process:\n{str(e)}"
+                ))
+        finally:
+            # Ensure we clean up
+            if self.current_upload_id is not None:
+                self.current_upload_id = None
+
+    # [Rest of the methods remain unchanged...]
     def get_upload_history(self):
         """Fetch all upload history from the database"""
         try:
@@ -210,7 +352,7 @@ class TopicUploadTask:
 
             cursor.execute('''
             SELECT id, upload_timestamp, topic_month, xml_files, images, 
-                   database_zip, images_zip
+                   database_zip, images_zip, filter_completed
             FROM uploads
             ORDER BY upload_timestamp DESC
             ''')
@@ -235,60 +377,6 @@ class TopicUploadTask:
                     images_zip = os.path.join(folder_path, file)
 
         return database_zip, images_zip
-
-    def process_zip_files(self, database_zip, images_zip, progress_dialog):
-        """Process the ZIP files and perform the necessary tasks"""
-        try:
-            # Extract files directly to working folder (don't create date-named subfolders)
-            progress_dialog.set_status("Extracting database ZIP file...")
-            with zipfile.ZipFile(database_zip, 'r') as zip_ref:
-                zip_ref.extractall(self.working_folder)
-
-            progress_dialog.set_status("Extracting images ZIP file...")
-            with zipfile.ZipFile(images_zip, 'r') as zip_ref:
-                zip_ref.extractall(self.working_folder)
-
-            # Process database XML files - search for validate folder anywhere in working folder
-            progress_dialog.set_status("Processing database XML files...")
-            database_output = os.path.join(self.working_folder, "database.zip")
-            self.process_database_files(self.working_folder, database_output)
-
-            # Process image files - search for Images folder anywhere in working folder
-            progress_dialog.set_status("Processing image files...")
-            images_output = os.path.join(self.working_folder, "images.zip")
-            self.process_image_files(self.working_folder, images_output)
-
-            # Copy files to server location
-            progress_dialog.set_status("Copying files to server...")
-            if not self.copy_files_to_server(database_output, images_output):
-                progress_dialog.destroy()
-                messagebox.showerror("Error", "Failed to copy files to server location. Please check the path exists.")
-                return
-
-            # Log the upload to database before showing success message
-            upload_id = self.log_upload_to_db(database_zip, images_zip)
-
-            progress_dialog.destroy()
-
-            if self.on_upload_complete:
-                self.on_upload_complete()
-
-            # Ask user if they want to run the filter task
-            run_filter = messagebox.askyesno(
-                "Success",
-                "Files have been copied to server. Do you want to run the filter job now?"
-            )
-
-            if run_filter:
-                # Store the upload_id as instance variable to use in monitor
-                self.current_upload_id = upload_id
-                self.run_filter_job()
-            else:
-                messagebox.showinfo("Success", "Files have been copied to server. You can run the filter job later.")
-
-        except Exception as e:
-            progress_dialog.destroy()
-            messagebox.showerror("Error", f"An error occurred during the process:\n{str(e)}")
 
     def extract_zip(self, zip_path, destination):
         """Extract a ZIP file and return the extracted folder path"""
@@ -404,64 +492,6 @@ class TopicUploadTask:
             messagebox.showerror("Error", f"Failed to start filter job: {str(e)}")
             return False
 
-    def mark_filter_complete(self, upload_id):
-        """Mark the upload as having completed filter processing in the database"""
-        try:
-            # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            db_file = os.path.join("Topic Upload History", "topic_uploads.db")
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-
-            cursor.execute('''
-            UPDATE uploads 
-            SET upload_timestamp = ?, 
-                filter_completed = 1 
-            WHERE id = ?
-            ''', (timestamp, upload_id))
-
-            conn.commit()
-        except Exception as e:
-            print(f"Error marking filter complete in database: {str(e)}")
-        finally:
-            if 'cursor' in locals():
-                cursor.close()
-            if 'conn' in locals():
-                conn.close()
-
-
-    def monitor_filter_process(self):
-        """Monitor the filter process and show appropriate completion message"""
-        try:
-            return_code = self.filter_process.wait()  # Wait for process to complete
-            was_manually_closed = return_code != 0
-
-            # Show appropriate message (using after to ensure it runs in main thread)
-            if hasattr(self.parent, 'after'):
-                if was_manually_closed:
-                    self.parent.after(0, lambda: messagebox.showwarning(
-                        "Filter Job Interrupted",
-                        "The filter task was stopped before completion.\n\n"
-                        "If you closed the window manually, please run the filter job again "
-                        "and let it complete normally."
-                    ))
-                else:
-                    # Only mark as complete if the filter job succeeded
-                    if hasattr(self, 'current_upload_id'):
-                        self.mark_filter_complete(self.current_upload_id)
-                        del self.current_upload_id  # Clean up
-
-                    self.parent.after(0, lambda: messagebox.showinfo(
-                        "Filter Job Complete",
-                        "The filter task has completed successfully."
-                    ))
-        except Exception as e:
-            print(f"Error monitoring filter process: {str(e)}")
-        finally:
-            # Ensure we clean up any database connections
-            if hasattr(self, 'current_upload_id'):
-                del self.current_upload_id
     def run_elastic_index_job(self):
         """Run the Elasticsearch index job and track its completion"""
         if not self.environment:
