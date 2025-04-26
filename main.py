@@ -1,4 +1,4 @@
-
+#main.py
 import tkinter as tk
 from ui.gradient_window import GradientWindow
 

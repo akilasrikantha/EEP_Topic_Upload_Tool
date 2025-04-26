@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox
 from ui.dialogs import ServerEnvironmentDialog, ProgressDialog, ConfirmationDialog
 from utils.file_utils import ensure_directory_exists
 
+
 class TopicUploadTask:
     def __init__(self, parent, on_upload_complete=None, on_folder_cleared=None):
         self.parent = parent
@@ -28,6 +29,9 @@ class TopicUploadTask:
 
         # Initialize upload tracking database
         self.init_upload_db()
+
+        # Database path
+        self.db_file = os.path.abspath(os.path.join("Topic Upload History", "topic_uploads.db"))
 
     def start_topic_upload(self):
         """Start the EEP Topic Upload process"""
@@ -76,7 +80,17 @@ class TopicUploadTask:
     def init_upload_db(self):
         """Initialize SQLite database for upload tracking if it doesn't exist"""
         history_folder = "Topic Upload History"
-        ensure_directory_exists(history_folder)
+
+        # Create directory if it doesn't exist
+        if not os.path.exists(history_folder):
+            try:
+                os.makedirs(history_folder)
+                print(f"Created directory: {history_folder}")
+            except Exception as e:
+                print(f"Error creating directory {history_folder}: {str(e)}")
+                messagebox.showwarning("Directory Warning",
+                                       f"Could not create {history_folder} directory. History will not be saved.")
+                return
 
         db_file = os.path.join(history_folder, "topic_uploads.db")
 
@@ -115,11 +129,12 @@ class TopicUploadTask:
 
             conn.commit()
             conn.close()
+            print(f"Successfully initialized database: {db_file}")
 
         except Exception as e:
             print(f"Error initializing upload database: {str(e)}")
             messagebox.showwarning("Database Warning",
-                                 "Could not initialize upload tracking database. History will not be saved.")
+                                   "Could not initialize upload tracking database. History will not be saved.")
 
     def log_upload_to_db(self, database_zip, images_zip):
         """Log upload metadata to SQLite database, but don't set timestamp yet"""
@@ -158,10 +173,12 @@ class TopicUploadTask:
             image_count = 0
             with zipfile.ZipFile(images_zip, 'r') as zip_ref:
                 image_count = len([f for f in zip_ref.namelist()
-                               if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))])
+                                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp'))])
 
-            db_file = os.path.join("Topic Upload History", "topic_uploads.db")
-            conn = sqlite3.connect(db_file)
+            # Ensure directory exists
+            ensure_directory_exists(os.path.dirname(self.db_file))
+
+            conn = sqlite3.connect(self.db_file, timeout=30)
             cursor = conn.cursor()
 
             # Insert with NULL timestamp - will be updated when filter completes
@@ -253,18 +270,36 @@ class TopicUploadTask:
 
     def mark_filter_complete(self, upload_id, completed=True):
         """Mark the upload as having completed filter processing in the database"""
+        if upload_id is None:
+            print("Cannot mark filter complete: upload_id is None")
+            return False
+
+        conn = None
         try:
-            db_file = os.path.join("Topic Upload History", "topic_uploads.db")
-            if not os.path.exists(db_file):
-                print("Database file does not exist")
+            print(f"mark_filter_complete called with upload_id={upload_id}, completed={completed}")
+
+            # Ensure directory exists
+            ensure_directory_exists(os.path.dirname(self.db_file))
+
+            if not os.path.exists(self.db_file):
+                print(f"Database file does not exist: {self.db_file}")
                 return False
 
-            conn = sqlite3.connect(db_file)
+            conn = sqlite3.connect(self.db_file, timeout=30)
             cursor = conn.cursor()
+
+            # First verify the record exists
+            cursor.execute("SELECT id FROM uploads WHERE id = ?", (upload_id,))
+            if not cursor.fetchone():
+                print(f"Record with ID {upload_id} does not exist in database")
+                return False
 
             if completed:
                 # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"Updating record {upload_id} with timestamp {timestamp}")
+
+                # Update the record with timestamp and mark as completed
                 cursor.execute('''
                 UPDATE uploads 
                 SET upload_timestamp = ?, 
@@ -280,18 +315,21 @@ class TopicUploadTask:
                 ''', (upload_id,))
 
             conn.commit()
-            print(f"Successfully marked upload {upload_id} as {'complete' if completed else 'incomplete'}")
+            print(f"Successfully updated record {upload_id}")
             return True
 
         except sqlite3.Error as e:
-            print(f"Database error marking filter complete: {str(e)}")
-            messagebox.showerror("Database Error", f"Failed to update database: {str(e)}")
+            print(f"SQLite error in mark_filter_complete: {str(e)}")
+            if conn:
+                conn.rollback()
             return False
         except Exception as e:
             print(f"General error in mark_filter_complete: {str(e)}")
+            if conn:
+                conn.rollback()
             return False
         finally:
-            if 'conn' in locals():
+            if conn:
                 conn.close()
 
     def monitor_filter_process(self):
@@ -312,18 +350,31 @@ class TopicUploadTask:
                 else:
                     # Only mark as complete if the filter job succeeded
                     if self.current_upload_id is not None:
+                        # Add small delay to ensure everything is ready
+                        time.sleep(1)
+
+                        # Debug print to trace the issue
+                        print(f"Attempting to mark upload {self.current_upload_id} as complete")
                         success = self.mark_filter_complete(self.current_upload_id)
-                        if not success:
+
+                        if success:
+                            print(f"Successfully marked upload {self.current_upload_id} as complete")
+                            self.parent.after(0, lambda: messagebox.showinfo(
+                                "Filter Job Complete",
+                                "The filter task has completed successfully."
+                            ))
+                        else:
+                            print(f"Failed to mark upload {self.current_upload_id} as complete")
                             self.parent.after(0, lambda: messagebox.showwarning(
                                 "Warning",
                                 "Filter completed but failed to update database record."
                             ))
-                        self.current_upload_id = None  # Clean up
-
-                    self.parent.after(0, lambda: messagebox.showinfo(
-                        "Filter Job Complete",
-                        "The filter task has completed successfully."
-                    ))
+                    else:
+                        print("No current_upload_id available to update")
+                        self.parent.after(0, lambda: messagebox.showwarning(
+                            "Warning",
+                            "Filter completed but no upload ID was found to update the database."
+                        ))
         except Exception as e:
             print(f"Error monitoring filter process: {str(e)}")
             if hasattr(self.parent, 'after'):
@@ -332,37 +383,55 @@ class TopicUploadTask:
                     f"An error occurred while monitoring the filter process:\n{str(e)}"
                 ))
         finally:
-            # Ensure we clean up
-            if self.current_upload_id is not None:
+            # Clear the upload ID only after we're done with it
+            if hasattr(self, 'current_upload_id') and self.current_upload_id is not None:
+                print(f"Clearing current_upload_id: {self.current_upload_id}")
                 self.current_upload_id = None
+            # Hide loader when done
+            if hasattr(self.parent, 'loader'):
+                self.parent.loader.stop_loading()
 
-    # [Rest of the methods remain unchanged...]
     def get_upload_history(self):
         """Fetch all upload history from the database"""
         try:
-            db_file = os.path.join("Topic Upload History", "topic_uploads.db")
+            # Ensure directory exists
+            ensure_directory_exists(os.path.dirname(self.db_file))
 
             # Ensure the database file exists
-            if not os.path.exists(db_file):
+            if not os.path.exists(self.db_file):
+                print(f"Database file does not exist: {self.db_file}")
                 return []
 
             # Connect with timeout to avoid locking issues
-            conn = sqlite3.connect(db_file, timeout=10)
+            conn = sqlite3.connect(self.db_file, timeout=30)
             cursor = conn.cursor()
+
+            # Print the schema to debug
+            cursor.execute("PRAGMA table_info(uploads)")
+            columns = cursor.fetchall()
+            print("Table schema:", columns)
+
+            # Count records to debug
+            cursor.execute("SELECT COUNT(*) FROM uploads")
+            count = cursor.fetchone()[0]
+            print(f"Found {count} records in uploads table")
 
             cursor.execute('''
             SELECT id, upload_timestamp, topic_month, xml_files, images, 
                    database_zip, images_zip, filter_completed
             FROM uploads
-            ORDER BY upload_timestamp DESC
+            ORDER BY 
+                CASE WHEN upload_timestamp IS NULL THEN 1 ELSE 0 END,
+                upload_timestamp DESC
             ''')
 
             history = cursor.fetchall()
+            print(f"Retrieved {len(history)} history records")
             conn.close()
             return history
         except Exception as e:
             print(f"Error fetching upload history: {str(e)}")
-            return None
+            return []
 
     def find_zip_files(self, folder_path):
         """Find the database and images zip files in the specified folder"""
@@ -494,6 +563,7 @@ class TopicUploadTask:
 
     def run_elastic_index_job(self):
         """Run the Elasticsearch index job and track its completion"""
+
         if not self.environment:
             # Ask for environment if not already set
             env_dialog = ServerEnvironmentDialog(self.parent)
@@ -511,6 +581,9 @@ class TopicUploadTask:
             return False
 
         try:
+            # Show loader before starting
+            if hasattr(self.parent, 'loader'):
+                self.parent.loader.start_loading("Updating Elasticsearch index...")
             # Notify user about the separate console window
             messagebox.showinfo(
                 "Elasticsearch Update Starting",
@@ -538,6 +611,7 @@ class TopicUploadTask:
             return False
 
     def monitor_elastic_process(self):
+
         """Monitor the elastic process and show appropriate completion message"""
         return_code = self.elastic_process.wait()
 

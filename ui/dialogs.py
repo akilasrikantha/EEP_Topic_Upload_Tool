@@ -1,3 +1,5 @@
+#dialogs.py
+
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -293,7 +295,7 @@ class UploadHistoryDialog:
         # Create the treeview
         columns = (
             "upload_time", "topic_month", "xml_files", "images",
-            "database_zip", "images_zip"
+            "database_zip", "images_zip", "status"
         )
 
         self.tree = ttk.Treeview(
@@ -336,10 +338,22 @@ class UploadHistoryDialog:
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
-        # Add data to treeview
+        # Modify the values insertion to remove status
         for record in history_data:
+            # Handle formatting of timestamp
+            timestamp = record[1]
+            if timestamp is None or timestamp == "None" or timestamp == "":
+                timestamp_display = "Pending"
+            else:
+                # Try to format the timestamp nicely
+                try:
+                    dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                    timestamp_display = dt.strftime("%Y-%m-%d %I:%M %p")
+                except (ValueError, TypeError):
+                    timestamp_display = timestamp
+
             values = (
-                record[1],  # upload_time
+                timestamp_display,  # upload_time
                 record[2],  # topic_month
                 record[3],  # xml_files
                 record[4],  # images
@@ -360,6 +374,16 @@ class UploadHistoryDialog:
             style="Accent.TButton"
         ).pack(side=tk.LEFT, padx=5)
 
+        # Refresh button
+        '''
+        ttk.Button(
+            button_frame,
+            text="Refresh",
+            command=self.refresh_data,
+            style="Accent.TButton"
+        ).pack(side=tk.LEFT, padx=5)
+        '''
+
         # Close button
         ttk.Button(
             button_frame,
@@ -371,9 +395,57 @@ class UploadHistoryDialog:
         # Configure button styles
         style.configure("Accent.TButton", font=("Arial", 11, "bold"))
 
+        # Store parent for refresh functionality
+        self.parent = parent
+
         # Wait for dialog to close
         parent.wait_window(self.dialog)
 
+    '''
+    def refresh_data(self):
+        """Refresh the display with latest data from database"""
+        try:
+            # Access the TopicUploadTask instance from parent to get fresh data
+            if hasattr(self.parent, "topic_upload_task"):
+                fresh_data = self.parent.topic_upload_task.get_upload_history()
+
+                # Clear existing data
+                for item in self.tree.get_children():
+                    self.tree.delete(item)
+
+                # Add refreshed data
+                for record in fresh_data:
+                    # Handle formatting of timestamp
+                    timestamp = record[1]
+                    if timestamp is None or timestamp == "None" or timestamp == "":
+                        timestamp_display = "Pending"
+                        status = "Filter Pending"
+                    else:
+                        # Try to format the timestamp nicely
+                        try:
+                            dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                            timestamp_display = dt.strftime("%Y-%m-%d %I:%M %p")
+                        except (ValueError, TypeError):
+                            timestamp_display = timestamp
+                        status = "Complete" if record[7] == 1 else "In Progress"
+
+                    values = (
+                        timestamp_display,  # upload_time
+                        record[2],  # topic_month
+                        record[3],  # xml_files
+                        record[4],  # images
+                        record[5],  # database_zip
+                        record[6],  # images_zip
+                        status  # status
+                    )
+                    self.tree.insert("", tk.END, values=values)
+
+                messagebox.showinfo("Refresh", "Data has been refreshed")
+            else:
+                messagebox.showwarning("Warning", "Cannot refresh data: Topic upload task not found")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh data: {str(e)}")
+    '''
     def export_to_csv(self):
         """Export the history data to a CSV file with Excel-friendly formatting"""
         try:
@@ -391,10 +463,10 @@ class UploadHistoryDialog:
 
             for item in self.tree.get_children():
                 values = list(self.tree.item(item, 'values'))
-                # Convert timestamp to Excel-friendly format if it exists
-                if values[0]:  # If timestamp exists
+                # Convert timestamp from display format if needed
+                if values[0] != "Pending":
                     try:
-                        # Convert from display format to Excel-friendly format
+                        # Try to parse and reformat for Excel
                         dt = datetime.strptime(values[0], "%Y-%m-%d %I:%M %p")
                         values[0] = dt.strftime("%Y-%m-%d %H:%M:%S")
                     except ValueError:
@@ -410,6 +482,7 @@ class UploadHistoryDialog:
             ensure_directory_exists(history_folder)
             csv_file = os.path.join(history_folder, "upload_history.csv")
 
+            # Write to CSV with Excel-compatible formatting
             # Write to CSV with Excel-compatible formatting
             with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:  # utf-8-sig for Excel
                 writer = csv.writer(f)

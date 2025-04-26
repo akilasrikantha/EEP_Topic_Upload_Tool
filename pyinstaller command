@@ -1,1 +1,4 @@
-pyinstaller --onefile --noconsole --name="EEP Topic Upload Tool" --icon=assets\EEP_512_512.ico --add-data "assets;assets" --hidden-import=ui.dialogs --hidden-import=ui.gradient_window --hidden-import=tasks.topic_upload --hidden-import=utils.file_utils main.py
+pyinstaller --onefile --noconsole --windowed --name="EEP Topic Upload Tool" --icon=assets\EEP_512_512.ico --add-data "assets;assets" --hidden-import=ui.dialogs --hidden-import=ui.gradient_window --hidden-import=tasks.topic_upload --hidden-import=utils.file_utils main.py
+
+
+pyinstaller --clean build.spec
