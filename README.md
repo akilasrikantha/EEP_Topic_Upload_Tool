@@ -41,8 +41,10 @@ The EEP Topic Upload Tool automates the previously manual process of managing to
 
 ## Benefits
 
-- **Time Savings**: Reduces processing time by approximately 75%
+- **Time Savings**: Reduces time spent on topic upload compared to the manual process
 - **Error Reduction**: Eliminates human errors in file manipulation
-- **Consistency**: Ensures uniform file naming and organization
+- **Easy Cleanup**: One-click removal of temporary files created during the topic upload process
 - **Improved Tracking**: Maintains comprehensive upload history
 - **User-Friendly**: Simple interface requires minimal training
+
+
