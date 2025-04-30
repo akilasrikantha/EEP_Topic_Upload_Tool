@@ -1,5 +1,3 @@
-#dialogs.py
-
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -33,6 +31,9 @@ class ServerEnvironmentDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
+        # Set background color to white for the dialog
+        self.dialog.configure(bg='white')
+
         # Set EEP icon for dialog
         try:
             icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
@@ -45,15 +46,24 @@ class ServerEnvironmentDialog:
         y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (200 // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
+        # Configure styles
+        style = ttk.Style()
+        style.configure("TRadiobutton", font=("Arial", 11), background='white')
+        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
+        style.configure("ServerEnv.TFrame", background='white')
+
         # Create content
-        frame = ttk.Frame(self.dialog, padding=20)
+        frame = ttk.Frame(self.dialog, padding=20, style="ServerEnv.TFrame")
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(
+        # Make the label have a white background
+        label = ttk.Label(
             frame,
             text="Select Server Environment:",
-            font=("Arial", 12, "bold")
-        ).pack(pady=(0, 20))
+            font=("Arial", 12, "bold"),
+            background='white'
+        )
+        label.pack(pady=(0, 20))
 
         self.environment_var = tk.StringVar(value="UAT")
 
@@ -74,7 +84,7 @@ class ServerEnvironmentDialog:
         ).pack(anchor=tk.W, pady=5)
 
         # Create buttons
-        button_frame = ttk.Frame(frame)
+        button_frame = ttk.Frame(frame, style="ServerEnv.TFrame")
         button_frame.pack(fill=tk.X, pady=(20, 0))
 
         ttk.Button(
@@ -89,11 +99,6 @@ class ServerEnvironmentDialog:
             command=self.on_continue,
             style="Accent.TButton"
         ).pack(side=tk.RIGHT, padx=5)
-
-        # Configure styles
-        style = ttk.Style()
-        style.configure("TRadiobutton", font=("Arial", 11))
-        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
 
         # Wait for dialog to close
         parent.wait_window(self.dialog)
@@ -113,6 +118,9 @@ class ProgressDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
+        # Set background color to white for the dialog
+        self.dialog.configure(bg='white')
+
         # Set EEP icon for dialog
         try:
             icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
@@ -128,15 +136,21 @@ class ProgressDialog:
         # Prevent closing the dialog
         self.dialog.protocol("WM_DELETE_WINDOW", lambda: None)
 
+        # Configure styles
+        style = ttk.Style()
+        style.configure("Progress.TFrame", background='white')
+        style.configure("Progress.TLabel", background='white')
+
         # Create content
-        frame = ttk.Frame(self.dialog, padding=20)
+        frame = ttk.Frame(self.dialog, padding=20, style="Progress.TFrame")
         frame.pack(fill=tk.BOTH, expand=True)
 
         self.status_label = ttk.Label(
             frame,
             text="Processing...",
             font=("Arial", 12),
-            wraplength=460  # Allow wrapping for long status messages
+            wraplength=460,  # Allow wrapping for long status messages
+            background='white'
         )
         self.status_label.pack(pady=(0, 20))
 
@@ -153,7 +167,8 @@ class ProgressDialog:
             frame,
             text="Please wait while the process completes...",
             font=("Arial", 10),
-            foreground="#666666"
+            foreground="#666666",
+            background='white'
         )
         self.wait_label.pack(pady=10)
 
@@ -174,7 +189,7 @@ class ProgressDialog:
 
 class ConfirmationDialog:
     def __init__(self, parent, title="Confirmation", message="Are you sure?",
-                 yes_button_text="Yes", no_button_text="No"):
+                 yes_button_text="Yes", no_button_text="No", show_icon=True):
         self.result = False
 
         # Create a dialog window
@@ -184,6 +199,9 @@ class ConfirmationDialog:
         self.dialog.resizable(False, False)
         self.dialog.transient(parent)
         self.dialog.grab_set()
+
+        # Set background color to white for the dialog
+        self.dialog.configure(bg='white')
 
         # Set EEP icon for dialog
         try:
@@ -197,50 +215,65 @@ class ConfirmationDialog:
         y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (200 // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
-        # Create content
-        frame = ttk.Frame(self.dialog, padding=20)
+        # Configure styles first to ensure they're available
+        style = ttk.Style()
+
+        # Create unique style names for the confirmation dialog
+        style.configure("Confirmation.TButton", font=("Arial", 11))
+        style.configure("Confirmation.Accent.TButton", font=("Arial", 11, "bold"))
+        style.configure("Confirmation.TFrame", background='white')  # Only affects confirmation dialog
+
+        # Create content frame with white background using our unique style
+        frame = ttk.Frame(self.dialog, padding=20, style='Confirmation.TFrame')
         frame.pack(fill=tk.BOTH, expand=True)
 
-        # Question icon (using Unicode character)
-        icon_label = ttk.Label(
-            frame,
-            text="❓",
-            font=("Arial", 24)
-        )
-        icon_label.pack(pady=(0, 10))
+        # Question icon (using Unicode character) - only if show_icon is True
+        if show_icon:
+            icon_label = ttk.Label(
+                frame,
+                text="❓",
+                font=("Arial", 24),
+                background='white'  # Set label background to white
+            )
+            icon_label.pack(pady=(0, 10))
 
-        # Message
+        # Message label with white background
         message_label = ttk.Label(
             frame,
             text=message,
             font=("Arial", 11),
             wraplength=400,
-            justify="center"
+            justify="center",
+            background='white'  # Set label background to white
         )
         message_label.pack(pady=(0, 20))
 
-        # Create buttons
-        button_frame = ttk.Frame(frame)
+        # Create buttons with explicit width and visibility check
+        button_frame = ttk.Frame(frame, style='Confirmation.TFrame')
         button_frame.pack(fill=tk.X, pady=(10, 0))
 
-        ttk.Button(
+        # "No" button
+        no_button = ttk.Button(
             button_frame,
             text=no_button_text,
             command=self.on_no,
-            width=15
-        ).pack(side=tk.RIGHT, padx=5)
+            width=15,
+            style='Confirmation.TButton'
+        )
+        no_button.pack(side=tk.RIGHT, padx=5)
 
-        ttk.Button(
+        # "Yes" button
+        yes_button = ttk.Button(
             button_frame,
             text=yes_button_text,
             command=self.on_yes,
-            style="Accent.TButton",
-            width=15
-        ).pack(side=tk.RIGHT, padx=5)
+            width=15,
+            style="Confirmation.Accent.TButton"
+        )
+        yes_button.pack(side=tk.RIGHT, padx=5)
 
-        # Configure styles
-        style = ttk.Style()
-        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
+        # Force update to ensure buttons are drawn
+        self.dialog.update_idletasks()
 
         # Wait for dialog to close
         parent.wait_window(self.dialog)
@@ -264,6 +297,9 @@ class UploadHistoryDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
+        # Set background color to white for the dialog
+        self.dialog.configure(bg='white')
+
         # Set EEP icon for dialog
         try:
             icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
@@ -276,12 +312,24 @@ class UploadHistoryDialog:
         y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (600 // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
+        # Configure styles
+        style = ttk.Style()
+        style.configure("UploadHistory.TFrame", background='white')
+        style.configure("Treeview",
+                        rowheight=25,
+                        font=("Arial", 10),
+                        anchor="center")  # Center align all data
+        style.configure("Treeview.Heading",
+                        font=("Arial", 10, "bold"),
+                        anchor="center")  # Center align headers
+        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
+
         # Create content
-        frame = ttk.Frame(self.dialog, padding=10)
+        frame = ttk.Frame(self.dialog, padding=10, style="UploadHistory.TFrame")
         frame.pack(fill=tk.BOTH, expand=True)
 
         # Create treeview with scrollbars
-        tree_frame = ttk.Frame(frame)
+        tree_frame = ttk.Frame(frame, style="UploadHistory.TFrame")
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         # Vertical scrollbar
@@ -321,16 +369,6 @@ class UploadHistoryDialog:
             ("images_zip", "Images ZIP", 200, True)
         ]
 
-        style = ttk.Style()
-        style.configure("Treeview",
-                        rowheight=25,
-                        font=("Arial", 10),
-                        anchor="center")  # Center align all data
-
-        style.configure("Treeview.Heading",
-                        font=("Arial", 10, "bold"),
-                        anchor="center")  # Center align headers
-
         for col_id, heading, width, stretch in column_defs:
             self.tree.heading(col_id, text=heading, anchor="center")
             self.tree.column(col_id, width=width, minwidth=width,
@@ -363,7 +401,7 @@ class UploadHistoryDialog:
             self.tree.insert("", tk.END, values=values)
 
         # Add button frame
-        button_frame = ttk.Frame(frame)
+        button_frame = ttk.Frame(frame, style="UploadHistory.TFrame")
         button_frame.pack(fill=tk.X, pady=(10, 0))
 
         # Export to CSV button
@@ -374,16 +412,6 @@ class UploadHistoryDialog:
             style="Accent.TButton"
         ).pack(side=tk.LEFT, padx=5)
 
-        # Refresh button
-        '''
-        ttk.Button(
-            button_frame,
-            text="Refresh",
-            command=self.refresh_data,
-            style="Accent.TButton"
-        ).pack(side=tk.LEFT, padx=5)
-        '''
-
         # Close button
         ttk.Button(
             button_frame,
@@ -392,60 +420,12 @@ class UploadHistoryDialog:
             style="Accent.TButton"
         ).pack(side=tk.RIGHT, padx=5)
 
-        # Configure button styles
-        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
-
         # Store parent for refresh functionality
         self.parent = parent
 
         # Wait for dialog to close
         parent.wait_window(self.dialog)
 
-    '''
-    def refresh_data(self):
-        """Refresh the display with latest data from database"""
-        try:
-            # Access the TopicUploadTask instance from parent to get fresh data
-            if hasattr(self.parent, "topic_upload_task"):
-                fresh_data = self.parent.topic_upload_task.get_upload_history()
-
-                # Clear existing data
-                for item in self.tree.get_children():
-                    self.tree.delete(item)
-
-                # Add refreshed data
-                for record in fresh_data:
-                    # Handle formatting of timestamp
-                    timestamp = record[1]
-                    if timestamp is None or timestamp == "None" or timestamp == "":
-                        timestamp_display = "Pending"
-                        status = "Filter Pending"
-                    else:
-                        # Try to format the timestamp nicely
-                        try:
-                            dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                            timestamp_display = dt.strftime("%Y-%m-%d %I:%M %p")
-                        except (ValueError, TypeError):
-                            timestamp_display = timestamp
-                        status = "Complete" if record[7] == 1 else "In Progress"
-
-                    values = (
-                        timestamp_display,  # upload_time
-                        record[2],  # topic_month
-                        record[3],  # xml_files
-                        record[4],  # images
-                        record[5],  # database_zip
-                        record[6],  # images_zip
-                        status  # status
-                    )
-                    self.tree.insert("", tk.END, values=values)
-
-                messagebox.showinfo("Refresh", "Data has been refreshed")
-            else:
-                messagebox.showwarning("Warning", "Cannot refresh data: Topic upload task not found")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to refresh data: {str(e)}")
-    '''
     def export_to_csv(self):
         """Export the history data to a CSV file with Excel-friendly formatting"""
         try:
@@ -483,7 +463,6 @@ class UploadHistoryDialog:
             csv_file = os.path.join(history_folder, "upload_history.csv")
 
             # Write to CSV with Excel-compatible formatting
-            # Write to CSV with Excel-compatible formatting
             with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:  # utf-8-sig for Excel
                 writer = csv.writer(f)
 
@@ -496,3 +475,119 @@ class UploadHistoryDialog:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
+
+
+class TetonHistoryDialog:
+    def __init__(self, parent, history_data):
+        # Create dialog window
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Teton Export History")
+        self.dialog.geometry("800x400")  # Wider to accommodate two columns
+        self.dialog.resizable(True, True)
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        # Set background color to white for the dialog
+        self.dialog.configure(bg='white')
+
+        # Set EEP icon for dialog
+        try:
+            icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
+            self.dialog.iconbitmap(icon_path)
+        except Exception as e:
+            print(f"Error loading icon for dialog: {e}")
+
+        # Center the dialog on parent
+        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (800 // 2)
+        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (400 // 2)
+        self.dialog.geometry(f"+{x}+{y}")
+
+        # Configure styles
+        style = ttk.Style()
+        style.configure("TetonHistory.TFrame", background='white')
+        style.configure("Treeview",
+                        rowheight=25,
+                        font=("Arial", 10),
+                        anchor="center")  # Center align all data
+        style.configure("Treeview.Heading",
+                        font=("Arial", 10, "bold"),
+                        anchor="center")  # Center align headers
+        style.configure("Accent.TButton", font=("Arial", 11, "bold"))
+
+        # Create content
+        frame = ttk.Frame(self.dialog, padding=10, style="TetonHistory.TFrame")
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create treeview with scrollbars
+        tree_frame = ttk.Frame(frame, style="TetonHistory.TFrame")
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Vertical scrollbar
+        y_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
+        y_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Create the treeview with two columns
+        columns = ("export_date", "export_folder")
+
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            yscrollcommand=y_scroll.set,
+            selectmode="browse",
+            show="headings"
+        )
+
+        # Configure scrollbar
+        y_scroll.config(command=self.tree.yview)
+
+        # Configure columns
+        self.tree.heading("export_date", text="Export Date & Time", anchor="center")
+        self.tree.column("export_date", width=300, minwidth=200, stretch=tk.YES, anchor="center")
+
+        self.tree.heading("export_folder", text="Export Folder Name", anchor="center")
+        self.tree.column("export_folder", width=300, minwidth=200, stretch=tk.YES, anchor="center")
+
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        # Add data to the treeview
+        for record in history_data:
+            # Handle formatting of timestamp
+            timestamp = record[1]  # Second item is the export timestamp
+            if timestamp is None or timestamp == "None" or timestamp == "":
+                timestamp_display = "Unknown"
+            else:
+                # Try to format the timestamp nicely
+                try:
+                    dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                    timestamp_display = dt.strftime("%Y-%m-%d %I:%M %p")
+                except (ValueError, TypeError):
+                    timestamp_display = timestamp
+
+            folder_name = record[2]  # Third item is the folder name
+            self.tree.insert("", tk.END, values=(timestamp_display, folder_name))
+
+        # Add button frame
+        button_frame = ttk.Frame(frame, style="TetonHistory.TFrame")
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+
+        # Export to CSV button
+        ttk.Button(
+            button_frame,
+            text="Export to CSV",
+            command=self.export_to_csv,
+            style="Accent.TButton"
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Close button
+        ttk.Button(
+            button_frame,
+            text="Close",
+            command=self.dialog.destroy,
+            style="Accent.TButton"
+        ).pack(side=tk.RIGHT, padx=5)
+
+        # Store parent for refresh functionality
+        self.parent = parent
+
+        # Wait for dialog to close
+        parent.wait_window(self.dialog)
