@@ -126,17 +126,19 @@ class TetonContentExportTask:
         try:
             # Step 1: Run the export batch file
             progress.set_status("Starting Teton content export...")
-            batch_file = "/opt/software/eeplus/bin/eeplus-filters-R01B085/compileEEPContentsForThirdPartyExport.bat"
+            batch_file = "C:\\opt\\software\\eeplus\\bin\\eeplus-filters-R01B085\\compileEEPContentsForThirdPartyExport.bat"
 
             if not os.path.exists(batch_file):
                 raise FileNotFoundError(f"Batch file not found at {batch_file}")
 
-            # Run the batch file
+            # Change to the batch file's directory before running it
+            batch_dir = os.path.dirname(batch_file)
+            os.chdir(batch_dir)
+
+            # Run the batch file in a new console window like run_filter_job
             process = subprocess.Popen(
-                batch_file,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=True
+                ['cmd', '/c', batch_file],
+                creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
             # Monitor progress (simplified for this example)
@@ -145,12 +147,11 @@ class TetonContentExportTask:
 
             # Check for errors
             if process.returncode != 0:
-                stderr = process.stderr.read().decode('utf-8', errors='replace')
-                raise Exception(f"Export failed with error:\n{stderr}")
+                raise Exception(f"Export failed with return code: {process.returncode}")
 
             # Step 2: Verify the exported files
             progress.set_status("Verifying exported files...")
-            export_dir = "/opt/software/eeplus/input/eeplus/ThirdPartyExport/"
+            export_dir = "C:\\opt\\software\\eeplus\\input\\eeplus\\ThirdPartyExport\\"
 
             missing_files = []
             for file in self.export_files:
@@ -196,6 +197,7 @@ class TetonContentExportTask:
                 "Export Failed",
                 f"Teton content export failed:\n{str(e)}"
             )
+
 
     def get_export_history(self):
         """Get the export history data from database"""
