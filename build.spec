@@ -12,6 +12,7 @@ a = Analysis(
         'ui.dialogs',
         'ui.gradient_window',
         'tasks.topic_upload',
+        'tasks.teton_content_export'
         'utils.file_utils'
     ],
     hookspath=[],

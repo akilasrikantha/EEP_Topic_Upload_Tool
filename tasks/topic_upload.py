@@ -107,7 +107,7 @@ class TopicUploadTask:
                 images INTEGER NOT NULL,
                 database_zip TEXT NOT NULL,
                 images_zip TEXT NOT NULL,
-                filter_completed INTEGER DEFAULT 0
+                status TEXT DEFAULT 'pending'
             )
             ''')
 
@@ -116,15 +116,37 @@ class TopicUploadTask:
             ON uploads(topic_month)
             ''')
 
-            # Add the column if it doesn't exist (for existing databases)
+            # Add the status column if it doesn't exist (for existing databases)
             cursor.execute('''
             PRAGMA table_info(uploads)
             ''')
             columns = [column[1] for column in cursor.fetchall()]
-            if 'filter_completed' not in columns:
+
+            # Handle migration from old schema to new schema
+            if 'filter_completed' in columns and 'status' not in columns:
+                # Add the new status column
                 cursor.execute('''
                 ALTER TABLE uploads
-                ADD COLUMN filter_completed INTEGER DEFAULT 0
+                ADD COLUMN status TEXT DEFAULT 'pending'
+                ''')
+
+                # Convert existing data: update status based on filter_completed value
+                cursor.execute('''
+                UPDATE uploads
+                SET status = CASE 
+                    WHEN filter_completed = 1 THEN 'completed'
+                    ELSE 'pending'
+                END
+                ''')
+
+                conn.commit()
+                print("Successfully migrated database from filter_completed to status")
+
+            # Ensure status column exists
+            elif 'status' not in columns:
+                cursor.execute('''
+                ALTER TABLE uploads
+                ADD COLUMN status TEXT DEFAULT 'pending'
                 ''')
 
             conn.commit()
@@ -181,12 +203,12 @@ class TopicUploadTask:
             conn = sqlite3.connect(self.db_file, timeout=30)
             cursor = conn.cursor()
 
-            # Insert with NULL timestamp - will be updated when filter completes
+            # Insert with NULL timestamp and 'pending' status
             cursor.execute('''
             INSERT INTO uploads (
                 upload_timestamp, topic_month, xml_files, images, 
-                database_zip, images_zip, filter_completed
-            ) VALUES (NULL, ?, ?, ?, ?, ?, 0)
+                database_zip, images_zip, status
+            ) VALUES (NULL, ?, ?, ?, ?, ?, 'pending')
             ''', (
                 topic_month,
                 xml_count,
@@ -207,6 +229,7 @@ class TopicUploadTask:
         finally:
             if conn:
                 conn.close()
+
 
     def process_zip_files(self, database_zip, images_zip, progress_dialog):
         """Process the ZIP files and perform the necessary tasks"""
@@ -268,15 +291,15 @@ class TopicUploadTask:
             progress_dialog.destroy()
             messagebox.showerror("Error", f"An error occurred during the process:\n{str(e)}")
 
-    def mark_filter_complete(self, upload_id, completed=True):
-        """Mark the upload as having completed filter processing in the database"""
+    def update_upload_status(self, upload_id, status, add_timestamp=False):
+        """Update the upload status in the database"""
         if upload_id is None:
-            print("Cannot mark filter complete: upload_id is None")
+            print(f"Cannot update status to '{status}': upload_id is None")
             return False
 
         conn = None
         try:
-            print(f"mark_filter_complete called with upload_id={upload_id}, completed={completed}")
+            print(f"update_upload_status called with upload_id={upload_id}, status={status}")
 
             # Ensure directory exists
             ensure_directory_exists(os.path.dirname(self.db_file))
@@ -294,43 +317,48 @@ class TopicUploadTask:
                 print(f"Record with ID {upload_id} does not exist in database")
                 return False
 
-            if completed:
+            if add_timestamp:
                 # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"Updating record {upload_id} with timestamp {timestamp}")
+                print(f"Updating record {upload_id} with timestamp {timestamp} and status {status}")
 
-                # Update the record with timestamp and mark as completed
+                # Update the record with timestamp and status
                 cursor.execute('''
                 UPDATE uploads 
                 SET upload_timestamp = ?, 
-                    filter_completed = 1 
+                    status = ? 
                 WHERE id = ?
-                ''', (timestamp, upload_id))
+                ''', (timestamp, status, upload_id))
             else:
-                # Just mark as not completed (filter wasn't run)
+                # Just update the status
                 cursor.execute('''
                 UPDATE uploads 
-                SET filter_completed = 0 
+                SET status = ? 
                 WHERE id = ?
-                ''', (upload_id,))
+                ''', (status, upload_id))
 
             conn.commit()
-            print(f"Successfully updated record {upload_id}")
+            print(f"Successfully updated record {upload_id} status to {status}")
             return True
 
         except sqlite3.Error as e:
-            print(f"SQLite error in mark_filter_complete: {str(e)}")
+            print(f"SQLite error in update_upload_status: {str(e)}")
             if conn:
                 conn.rollback()
             return False
         except Exception as e:
-            print(f"General error in mark_filter_complete: {str(e)}")
+            print(f"General error in update_upload_status: {str(e)}")
             if conn:
                 conn.rollback()
             return False
         finally:
             if conn:
                 conn.close()
+
+    def mark_filter_complete(self, upload_id, completed=True):
+        """Mark the upload as having completed filter processing in the database"""
+        status = "completed" if completed else "pending"
+        return self.update_upload_status(upload_id, status, add_timestamp=completed)
 
     def monitor_filter_process(self):
         """Monitor the filter process and show appropriate completion message"""
@@ -341,6 +369,10 @@ class TopicUploadTask:
             # Show appropriate message (using after to ensure it runs in main thread)
             if hasattr(self.parent, 'after'):
                 if was_manually_closed:
+                    # Mark as interrupted in the database
+                    if self.current_upload_id is not None:
+                        self.update_upload_status(self.current_upload_id, "interrupted")
+
                     self.parent.after(0, lambda: messagebox.showwarning(
                         "Filter Job Interrupted",
                         "The filter task was stopped before completion.\n\n"
@@ -355,7 +387,7 @@ class TopicUploadTask:
 
                         # Debug print to trace the issue
                         print(f"Attempting to mark upload {self.current_upload_id} as complete")
-                        success = self.mark_filter_complete(self.current_upload_id)
+                        success = self.update_upload_status(self.current_upload_id, "completed", add_timestamp=True)
 
                         if success:
                             print(f"Successfully marked upload {self.current_upload_id} as complete")
@@ -376,6 +408,10 @@ class TopicUploadTask:
                             "Filter completed but no upload ID was found to update the database."
                         ))
         except Exception as e:
+            # Mark as failed in the database
+            if hasattr(self, 'current_upload_id') and self.current_upload_id is not None:
+                self.update_upload_status(self.current_upload_id, "failed")
+
             print(f"Error monitoring filter process: {str(e)}")
             if hasattr(self.parent, 'after'):
                 self.parent.after(0, lambda: messagebox.showerror(
@@ -416,14 +452,28 @@ class TopicUploadTask:
             count = cursor.fetchone()[0]
             print(f"Found {count} records in uploads table")
 
-            cursor.execute('''
-            SELECT id, upload_timestamp, topic_month, xml_files, images, 
-                   database_zip, images_zip, filter_completed
-            FROM uploads
-            ORDER BY 
-                CASE WHEN upload_timestamp IS NULL THEN 1 ELSE 0 END,
-                upload_timestamp DESC
-            ''')
+            # Check if we're using the old or new schema
+            has_status_column = any(column[1] == 'status' for column in columns)
+
+            if has_status_column:
+                cursor.execute('''
+                SELECT id, upload_timestamp, topic_month, xml_files, images, 
+                       database_zip, images_zip, status
+                FROM uploads
+                ORDER BY 
+                    CASE WHEN upload_timestamp IS NULL THEN 1 ELSE 0 END,
+                    upload_timestamp DESC
+                ''')
+            else:
+                # Fall back to old schema for backward compatibility
+                cursor.execute('''
+                SELECT id, upload_timestamp, topic_month, xml_files, images, 
+                       database_zip, images_zip, filter_completed
+                FROM uploads
+                ORDER BY 
+                    CASE WHEN upload_timestamp IS NULL THEN 1 ELSE 0 END,
+                    upload_timestamp DESC
+                ''')
 
             history = cursor.fetchall()
             print(f"Retrieved {len(history)} history records")

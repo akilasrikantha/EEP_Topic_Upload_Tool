@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox
+import threading
 from ui.dialogs import ProgressDialog, ConfirmationDialog
 
 
@@ -14,6 +15,8 @@ class TetonContentExportTask:
         self.on_export_complete = on_export_complete
         self.on_folder_cleared = on_folder_cleared
         self.export_folder = None
+        self.current_export_id = None
+        self.export_process = None
         self.export_files = [
             "checksums.md5",
             "eep_anatomyimages.zip",
@@ -52,8 +55,9 @@ class TetonContentExportTask:
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS exports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                export_timestamp TEXT NOT NULL,
-                export_folder TEXT NOT NULL
+                export_timestamp TEXT,
+                export_folder TEXT NOT NULL,
+                status TEXT DEFAULT 'pending'
             )
             ''')
 
@@ -61,6 +65,23 @@ class TetonContentExportTask:
             CREATE INDEX IF NOT EXISTS idx_export_timestamp 
             ON exports(export_timestamp)
             ''')
+
+            # Check if status column exists, if not add it (for existing databases)
+            cursor.execute('''
+            PRAGMA table_info(exports)
+            ''')
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'status' not in columns:
+                cursor.execute('''
+                ALTER TABLE exports
+                ADD COLUMN status TEXT DEFAULT 'completed'
+                ''')
+                # Assume all existing records were completed successfully
+                cursor.execute('''
+                UPDATE exports
+                SET status = 'completed'
+                WHERE status IS NULL
+                ''')
 
             conn.commit()
             conn.close()
@@ -71,12 +92,10 @@ class TetonContentExportTask:
             messagebox.showwarning("Database Warning",
                                    "Could not initialize export tracking database. History will not be saved.")
 
-    def log_export_to_db(self, export_folder):
-        """Log export metadata to SQLite database"""
+    def log_export_start(self, export_folder):
+        """Log the start of an export with pending status"""
         conn = None
         try:
-            # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             folder_name = os.path.basename(export_folder)
 
             conn = sqlite3.connect(self.db_file, timeout=30)
@@ -85,22 +104,84 @@ class TetonContentExportTask:
             cursor.execute('''
             INSERT INTO exports (
                 export_timestamp, 
-                export_folder
-            ) VALUES (?, ?)
-            ''', (
-                timestamp,
-                folder_name
-            ))
+                export_folder,
+                status
+            ) VALUES (NULL, ?, 'pending')
+            ''', (folder_name,))
 
             conn.commit()
             export_id = cursor.lastrowid
-            print(f"Successfully logged export to database with ID: {export_id}")
+            print(f"Successfully logged export start to database with ID: {export_id}")
             return export_id
 
         except Exception as e:
-            print(f"Error logging export to database: {str(e)}")
+            print(f"Error logging export start to database: {str(e)}")
             messagebox.showerror("Database Error", f"Failed to log export to database: {str(e)}")
             return None
+        finally:
+            if conn:
+                conn.close()
+
+    def update_export_status(self, export_id, status, add_timestamp=False):
+        """Update the export status in the database"""
+        if export_id is None:
+            print(f"Cannot update status to '{status}': export_id is None")
+            return False
+
+        conn = None
+        try:
+            print(f"update_export_status called with export_id={export_id}, status={status}")
+
+            if not os.path.exists(os.path.dirname(self.db_file)):
+                os.makedirs(os.path.dirname(self.db_file), exist_ok=True)
+
+            if not os.path.exists(self.db_file):
+                print(f"Database file does not exist: {self.db_file}")
+                return False
+
+            conn = sqlite3.connect(self.db_file, timeout=30)
+            cursor = conn.cursor()
+
+            # First verify the record exists
+            cursor.execute("SELECT id FROM exports WHERE id = ?", (export_id,))
+            if not cursor.fetchone():
+                print(f"Record with ID {export_id} does not exist in database")
+                return False
+
+            if add_timestamp:
+                # Format timestamp in Excel-friendly format (YYYY-MM-DD HH:MM:SS)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"Updating record {export_id} with timestamp {timestamp} and status {status}")
+
+                # Update the record with timestamp and status
+                cursor.execute('''
+                UPDATE exports 
+                SET export_timestamp = ?, 
+                    status = ? 
+                WHERE id = ?
+                ''', (timestamp, status, export_id))
+            else:
+                # Just update the status
+                cursor.execute('''
+                UPDATE exports 
+                SET status = ? 
+                WHERE id = ?
+                ''', (status, export_id))
+
+            conn.commit()
+            print(f"Successfully updated record {export_id} status to {status}")
+            return True
+
+        except sqlite3.Error as e:
+            print(f"SQLite error in update_export_status: {str(e)}")
+            if conn:
+                conn.rollback()
+            return False
+        except Exception as e:
+            print(f"General error in update_export_status: {str(e)}")
+            if conn:
+                conn.rollback()
+            return False
         finally:
             if conn:
                 conn.close()
@@ -124,6 +205,16 @@ class TetonContentExportTask:
         progress = ProgressDialog(self.root, title="Teton Content Export")
 
         try:
+            # Create export folder first to generate ID
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            self.export_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), current_date)
+
+            # Create the folder if it doesn't exist
+            os.makedirs(self.export_folder, exist_ok=True)
+
+            # Log the export to database - get ID for tracking
+            self.current_export_id = self.log_export_start(self.export_folder)
+
             # Step 1: Run the export batch file
             progress.set_status("Starting Teton content export...")
             batch_file = "C:\\opt\\software\\eeplus\\bin\\eeplus-filters-R01B085\\compileEEPContentsForThirdPartyExport.bat"
@@ -135,23 +226,56 @@ class TetonContentExportTask:
             batch_dir = os.path.dirname(batch_file)
             os.chdir(batch_dir)
 
-            # Run the batch file in a new console window like run_filter_job
-            process = subprocess.Popen(
+            # Run the batch file in a new console window
+            self.export_process = subprocess.Popen(
                 ['cmd', '/c', batch_file],
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
-            # Monitor progress (simplified for this example)
-            while process.poll() is None:
-                self.root.update()
+            # Start a thread to monitor the process
+            monitor_thread = threading.Thread(
+                target=self.monitor_export_process,
+                args=(progress,),
+                daemon=True
+            )
+            monitor_thread.start()
 
-            # Check for errors
-            if process.returncode != 0:
-                raise Exception(f"Export failed with return code: {process.returncode}")
+        except Exception as e:
+            # Mark as failed in the database
+            if self.current_export_id:
+                self.update_export_status(self.current_export_id, "failed")
 
-            # Step 2: Verify the exported files
-            progress.set_status("Verifying exported files...")
+            progress.destroy()
+            messagebox.showerror(
+                "Export Failed",
+                f"Teton content export failed:\n{str(e)}"
+            )
+
+    def monitor_export_process(self, progress_dialog):
+        """Monitor the export process and handle completion"""
+        try:
+            # Wait for the process to complete
+            return_code = self.export_process.wait()
+            was_manually_closed = return_code != 0
+
+            if was_manually_closed:
+                # Update database to show interrupted
+                if self.current_export_id:
+                    self.update_export_status(self.current_export_id, "interrupted")
+
+                # Show warning message
+                self.root.after(0, lambda: messagebox.showwarning(
+                    "Export Interrupted",
+                    "The Teton export process was interrupted before completion."
+                ))
+                self.root.after(0, progress_dialog.destroy)
+                return
+
+            # Process completed normally, continue with verification and file copying
             export_dir = "C:\\opt\\software\\eeplus\\input\\eeplus\\ThirdPartyExport\\"
+
+            # Verify the exported files
+            self.root.after(0, lambda: progress_dialog.set_status("Verifying exported files..."))
 
             missing_files = []
             for file in self.export_files:
@@ -159,45 +283,63 @@ class TetonContentExportTask:
                     missing_files.append(file)
 
             if missing_files:
-                raise Exception(f"Missing exported files: {', '.join(missing_files)}")
+                # Update database to show failed
+                if self.current_export_id:
+                    self.update_export_status(self.current_export_id, "failed")
 
-            # Step 3: Copy files to a dated folder
-            progress.set_status("Copying exported files...")
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            self.export_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), current_date)
+                error_msg = f"Missing exported files: {', '.join(missing_files)}"
+                self.root.after(0, lambda: messagebox.showerror("Export Failed", error_msg))
+                self.root.after(0, progress_dialog.destroy)
+                return
 
-            # Create the folder if it doesn't exist
-            os.makedirs(self.export_folder, exist_ok=True)
+            # Copy files to the dated folder
+            self.root.after(0, lambda: progress_dialog.set_status("Copying exported files..."))
 
-            # Copy each file
-            for file in self.export_files:
-                src = os.path.join(export_dir, file)
-                dst = os.path.join(self.export_folder, file)
-                shutil.copy2(src, dst)
+            try:
+                # Copy each file
+                for file in self.export_files:
+                    src = os.path.join(export_dir, file)
+                    dst = os.path.join(self.export_folder, file)
+                    shutil.copy2(src, dst)
 
-            # Log the export to database
-            self.log_export_to_db(self.export_folder)
+                # Mark export as completed in database
+                if self.current_export_id:
+                    self.update_export_status(self.current_export_id, "completed", add_timestamp=True)
 
-            # Complete
-            progress.set_status("Teton content export completed successfully!")
-            self.root.after(1000, progress.destroy)
+                # Show completion message
+                self.root.after(0, lambda: progress_dialog.set_status("Teton content export completed successfully!"))
+                self.root.after(1000, progress_dialog.destroy)
 
-            if self.on_export_complete:
-                self.on_export_complete()
+                if self.on_export_complete:
+                    self.root.after(0, self.on_export_complete)
 
-            messagebox.showinfo(
-                "Export Complete",
-                "Teton content export completed successfully!\n\n"
-                f"Files copied to: {self.export_folder}"
-            )
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Export Complete",
+                    "Teton content export completed successfully!\n\n"
+                    f"Files copied to: {self.export_folder}"
+                ))
+            except Exception as e:
+                # Update database to show failed
+                if self.current_export_id:
+                    self.update_export_status(self.current_export_id, "failed")
+
+                error_msg = f"Failed to copy exported files: {str(e)}"
+                self.root.after(0, lambda: messagebox.showerror("Export Failed", error_msg))
+                self.root.after(0, progress_dialog.destroy)
 
         except Exception as e:
-            progress.destroy()
-            messagebox.showerror(
-                "Export Failed",
-                f"Teton content export failed:\n{str(e)}"
-            )
+            # Update database to show failed
+            if self.current_export_id:
+                self.update_export_status(self.current_export_id, "failed")
 
+            error_msg = f"Error monitoring export process: {str(e)}"
+            self.root.after(0, lambda: messagebox.showerror("Export Error", error_msg))
+            self.root.after(0, progress_dialog.destroy)
+
+        finally:
+            # Clean up
+            self.current_export_id = None
+            self.export_process = None
 
     def get_export_history(self):
         """Get the export history data from database"""
@@ -214,11 +356,25 @@ class TetonContentExportTask:
             conn = sqlite3.connect(self.db_file, timeout=30)
             cursor = conn.cursor()
 
-            cursor.execute('''
-            SELECT id, export_timestamp, export_folder
-            FROM exports
-            ORDER BY export_timestamp DESC
-            ''')
+            # Check if status column exists
+            cursor.execute("PRAGMA table_info(exports)")
+            columns = [column[1] for column in cursor.fetchall()]
+
+            if 'status' in columns:
+                cursor.execute('''
+                SELECT id, export_timestamp, export_folder, status
+                FROM exports
+                ORDER BY 
+                    CASE WHEN export_timestamp IS NULL THEN 1 ELSE 0 END,
+                    export_timestamp DESC
+                ''')
+            else:
+                # Fallback for databases without status column
+                cursor.execute('''
+                SELECT id, export_timestamp, export_folder
+                FROM exports
+                ORDER BY export_timestamp DESC
+                ''')
 
             history = cursor.fetchall()
             print(f"Retrieved {len(history)} export history records")
