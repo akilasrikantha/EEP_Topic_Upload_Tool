@@ -391,10 +391,10 @@ class TopicUploadTask:
 
                         if success:
                             print(f"Successfully marked upload {self.current_upload_id} as complete")
-                            self.parent.after(0, lambda: messagebox.showinfo(
-                                "Filter Job Complete",
-                                "The filter task has completed successfully."
-                            ))
+
+                            # Ask user if they want to run the Elastic Index job after successful filter completion
+                            self.parent.after(0, lambda: self.ask_run_elastic_job())
+
                         else:
                             print(f"Failed to mark upload {self.current_upload_id} as complete")
                             self.parent.after(0, lambda: messagebox.showwarning(
@@ -701,3 +701,19 @@ class TopicUploadTask:
                         self.on_folder_cleared()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete temporary files: {str(e)}")
+
+    def ask_run_elastic_job(self):
+        """Ask user if they want to run the Elastic Index job"""
+        run_elastic = messagebox.askyesno(
+            "Filter Job Complete",
+            "The filter task has completed successfully.\n\n"
+            "Do you want to run the Elastic Index job now?"
+        )
+
+        if run_elastic:
+            self.run_elastic_index_job()
+        else:
+            messagebox.showinfo(
+                "Success",
+                "Filter completed successfully. You can run the Elastic Index job later."
+            )

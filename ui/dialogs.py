@@ -437,20 +437,13 @@ class UploadHistoryDialog:
                 "No of XML Files",
                 "No of Images",
                 "Database ZIP",
-                "Images ZIP"
+                "Images ZIP",
+                "Status"
             ]
             data.append(headers)  # Add headers first
 
             for item in self.tree.get_children():
                 values = list(self.tree.item(item, 'values'))
-                # Convert timestamp from display format if needed
-                if values[0] != "Pending":
-                    try:
-                        # Try to parse and reformat for Excel
-                        dt = datetime.strptime(values[0], "%Y-%m-%d %I:%M %p")
-                        values[0] = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        pass  # Keep original format if conversion fails
                 data.append(values)
 
             if len(data) <= 1:  # Only headers exist
@@ -460,18 +453,21 @@ class UploadHistoryDialog:
             # Create CSV file path
             history_folder = "Topic Upload History"
             ensure_directory_exists(history_folder)
-            csv_file = os.path.join(history_folder, "upload_history.csv")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_file = os.path.join(history_folder, f"topic_upload_history_{timestamp}.csv")
 
             # Write to CSV with Excel-compatible formatting
             with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:  # utf-8-sig for Excel
                 writer = csv.writer(f)
-
-                # Write UTF-8 BOM for Excel compatibility
-                f.write('\ufeff')
-
                 writer.writerows(data)
 
             messagebox.showinfo("Success", f"Data exported to:\n{csv_file}")
+
+            # Open the file location in Explorer
+            try:
+                os.startfile(os.path.dirname(csv_file))
+            except Exception as e:
+                print(f"Error opening file location: {e}")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
@@ -591,3 +587,45 @@ class TetonHistoryDialog:
 
         # Wait for dialog to close
         parent.wait_window(self.dialog)
+
+    def export_to_csv(self):
+        """Export the Teton export history data to a CSV file"""
+        try:
+            # Get all data from the treeview
+            data = []
+            headers = [
+                "Export Date & Time",
+                "Export Folder Name",
+                "Status"
+            ]
+            data.append(headers)  # Add headers first
+
+            for item in self.tree.get_children():
+                values = list(self.tree.item(item, 'values'))
+                data.append(values)
+
+            if len(data) <= 1:  # Only headers exist
+                messagebox.showwarning("Warning", "No data to export")
+                return
+
+            # Create CSV file path
+            history_folder = "Teton Export History"
+            ensure_directory_exists(history_folder)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_file = os.path.join(history_folder, f"teton_export_history_{timestamp}.csv")
+
+            # Write to CSV with Excel-compatible formatting
+            with open(csv_file, 'w', newline='', encoding='utf-8-sig') as f:  # utf-8-sig for Excel
+                writer = csv.writer(f)
+                writer.writerows(data)
+
+            messagebox.showinfo("Success", f"Data exported to:\n{csv_file}")
+
+            # Open the file location in Explorer
+            try:
+                os.startfile(os.path.dirname(csv_file))
+            except Exception as e:
+                print(f"Error opening file location: {e}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")

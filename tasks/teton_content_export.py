@@ -23,8 +23,9 @@ class TetonContentExportTask:
             "eep_cdr.zip",
             "eep_cochrane.zip",
             "eep_dermimages.zip",
+            "eep_eetopics.zip",
             "eep_hp_diag.zip",
-            "eep_metadata.xls"
+            "eep_metadata.xls.zip"
         ]
 
         # Database file path
@@ -201,13 +202,12 @@ class TetonContentExportTask:
             self.run_teton_export()
 
     def run_teton_export(self):
-        """Run the Teton content export process"""
-        progress = ProgressDialog(self.root, title="Teton Content Export")
-
+        """Run the Teton content export process without progress bar"""
         try:
-            # Create export folder first to generate ID
+            # Create export folder in the same directory as the executable/script
             current_date = datetime.now().strftime("%Y-%m-%d")
-            self.export_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), current_date)
+            base_dir = os.path.dirname(os.path.abspath(__file__))  # Directory where the script/exe is located
+            self.export_folder = os.path.join(base_dir, current_date)
 
             # Create the folder if it doesn't exist
             os.makedirs(self.export_folder, exist_ok=True)
@@ -215,8 +215,13 @@ class TetonContentExportTask:
             # Log the export to database - get ID for tracking
             self.current_export_id = self.log_export_start(self.export_folder)
 
-            # Step 1: Run the export batch file
-            progress.set_status("Starting Teton content export...")
+            # Show info message that export is starting
+            messagebox.showinfo(
+                "Export Starting",
+                "Teton content export is starting in a separate window.\n\n"
+                "Please wait for it to complete - this may take several minutes."
+            )
+
             batch_file = "C:\\opt\\software\\eeplus\\bin\\eeplus-filters-R01B085\\compileEEPContentsForThirdPartyExport.bat"
 
             if not os.path.exists(batch_file):
@@ -235,7 +240,6 @@ class TetonContentExportTask:
             # Start a thread to monitor the process
             monitor_thread = threading.Thread(
                 target=self.monitor_export_process,
-                args=(progress,),
                 daemon=True
             )
             monitor_thread.start()
@@ -245,14 +249,13 @@ class TetonContentExportTask:
             if self.current_export_id:
                 self.update_export_status(self.current_export_id, "failed")
 
-            progress.destroy()
             messagebox.showerror(
                 "Export Failed",
-                f"Teton content export failed:\n{str(e)}"
+                f"Teton content export failed to start:\n{str(e)}"
             )
 
-    def monitor_export_process(self, progress_dialog):
-        """Monitor the export process and handle completion"""
+    def monitor_export_process(self):
+        """Monitor the export process and handle completion without progress dialog"""
         try:
             # Wait for the process to complete
             return_code = self.export_process.wait()
@@ -268,15 +271,12 @@ class TetonContentExportTask:
                     "Export Interrupted",
                     "The Teton export process was interrupted before completion."
                 ))
-                self.root.after(0, progress_dialog.destroy)
                 return
 
             # Process completed normally, continue with verification and file copying
             export_dir = "C:\\opt\\software\\eeplus\\input\\eeplus\\ThirdPartyExport\\"
 
             # Verify the exported files
-            self.root.after(0, lambda: progress_dialog.set_status("Verifying exported files..."))
-
             missing_files = []
             for file in self.export_files:
                 if not os.path.exists(os.path.join(export_dir, file)):
@@ -289,12 +289,9 @@ class TetonContentExportTask:
 
                 error_msg = f"Missing exported files: {', '.join(missing_files)}"
                 self.root.after(0, lambda: messagebox.showerror("Export Failed", error_msg))
-                self.root.after(0, progress_dialog.destroy)
                 return
 
             # Copy files to the dated folder
-            self.root.after(0, lambda: progress_dialog.set_status("Copying exported files..."))
-
             try:
                 # Copy each file
                 for file in self.export_files:
@@ -305,10 +302,6 @@ class TetonContentExportTask:
                 # Mark export as completed in database
                 if self.current_export_id:
                     self.update_export_status(self.current_export_id, "completed", add_timestamp=True)
-
-                # Show completion message
-                self.root.after(0, lambda: progress_dialog.set_status("Teton content export completed successfully!"))
-                self.root.after(1000, progress_dialog.destroy)
 
                 if self.on_export_complete:
                     self.root.after(0, self.on_export_complete)
@@ -325,7 +318,6 @@ class TetonContentExportTask:
 
                 error_msg = f"Failed to copy exported files: {str(e)}"
                 self.root.after(0, lambda: messagebox.showerror("Export Failed", error_msg))
-                self.root.after(0, progress_dialog.destroy)
 
         except Exception as e:
             # Update database to show failed
@@ -334,8 +326,6 @@ class TetonContentExportTask:
 
             error_msg = f"Error monitoring export process: {str(e)}"
             self.root.after(0, lambda: messagebox.showerror("Export Error", error_msg))
-            self.root.after(0, progress_dialog.destroy)
-
         finally:
             # Clean up
             self.current_export_id = None
