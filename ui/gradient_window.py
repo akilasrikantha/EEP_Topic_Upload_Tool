@@ -442,7 +442,7 @@ class GradientWindow:
         """Show the upload history dialog"""
         history = self.topic_upload_task.get_upload_history()
         if history:
-            UploadHistoryDialog(self.root, history)
+            UploadHistoryDialog(self.root, history, self.topic_upload_task.db_file)
         else:
             messagebox.showinfo(
                 "No History",
@@ -457,8 +457,7 @@ class GradientWindow:
         """Show Teton export history"""
         history = self.teton_export_task.get_export_history()
         if history:
-            # You'll need to create a similar dialog for Teton history
-            TetonHistoryDialog(self.root, history)
+            TetonHistoryDialog(self.root, history, self.teton_export_task.db_file)
         else:
             messagebox.showinfo(
                 "No History",

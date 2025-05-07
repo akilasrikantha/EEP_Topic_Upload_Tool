@@ -288,7 +288,7 @@ class ConfirmationDialog:
 
 
 class UploadHistoryDialog:
-    def __init__(self, parent, history_data):
+    def __init__(self, parent, history_data, db_file):
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Topic Upload History")
@@ -300,6 +300,8 @@ class UploadHistoryDialog:
         # Set background color to white for the dialog
         self.dialog.configure(bg='white')
 
+        # Store db_file as instance variable
+        self.db_file = db_file
         # Set EEP icon for dialog
         try:
             icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
@@ -450,8 +452,8 @@ class UploadHistoryDialog:
                 messagebox.showwarning("Warning", "No data to export")
                 return
 
-            # Create CSV file path
-            history_folder = "Topic Upload History"
+            # Create CSV file path - use the same folder as the database
+            history_folder = os.path.dirname(self.parent.db_file)  # Get from parent
             ensure_directory_exists(history_folder)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             csv_file = os.path.join(history_folder, f"topic_upload_history_{timestamp}.csv")
@@ -474,7 +476,7 @@ class UploadHistoryDialog:
 
 
 class TetonHistoryDialog:
-    def __init__(self, parent, history_data):
+    def __init__(self, parent, history_data, db_file):
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Teton Export History")
@@ -485,7 +487,8 @@ class TetonHistoryDialog:
 
         # Set background color to white for the dialog
         self.dialog.configure(bg='white')
-
+        # Store db_file as instance variable
+        self.db_file = db_file
         # Set EEP icon for dialog
         try:
             icon_path = resource_path(os.path.join("assets", "EEP_512_512.ico"))
@@ -608,8 +611,8 @@ class TetonHistoryDialog:
                 messagebox.showwarning("Warning", "No data to export")
                 return
 
-            # Create CSV file path
-            history_folder = "Teton Export History"
+            # Create CSV file path - use the same folder as the database
+            history_folder = os.path.dirname(self.parent.db_file)  # Get from parent
             ensure_directory_exists(history_folder)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             csv_file = os.path.join(history_folder, f"teton_export_history_{timestamp}.csv")

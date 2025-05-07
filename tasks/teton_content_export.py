@@ -204,10 +204,10 @@ class TetonContentExportTask:
     def run_teton_export(self):
         """Run the Teton content export process without progress bar"""
         try:
-            # Create export folder in the same directory as the executable/script
+            # Create export folder on desktop
             current_date = datetime.now().strftime("%Y-%m-%d")
-            base_dir = os.path.dirname(os.path.abspath(__file__))  # Directory where the script/exe is located
-            self.export_folder = os.path.join(base_dir, current_date)
+            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            self.export_folder = os.path.join(desktop_path, f"{current_date}")
 
             # Create the folder if it doesn't exist
             os.makedirs(self.export_folder, exist_ok=True)
@@ -309,7 +309,7 @@ class TetonContentExportTask:
                 self.root.after(0, lambda: messagebox.showinfo(
                     "Export Complete",
                     "Teton content export completed successfully!\n\n"
-                    f"Files copied to: {self.export_folder}"
+                    f"Files copied to: {self.export_folder}. Please upload this folder({self.export_folder}) to the xfer location( ftproot/fullcontentdump )"
                 ))
             except Exception as e:
                 # Update database to show failed
