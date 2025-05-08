@@ -442,7 +442,7 @@ class GradientWindow:
         """Show the upload history dialog"""
         history = self.topic_upload_task.get_upload_history()
         if history:
-            UploadHistoryDialog(self.root, history, self.topic_upload_task.db_file)
+            UploadHistoryDialog(self.root, history, self.topic_upload_task.db_file)  # Pass db_file here
         else:
             messagebox.showinfo(
                 "No History",

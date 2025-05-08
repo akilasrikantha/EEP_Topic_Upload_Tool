@@ -453,7 +453,7 @@ class UploadHistoryDialog:
                 return
 
             # Create CSV file path - use the same folder as the database
-            history_folder = os.path.dirname(self.parent.db_file)  # Get from parent
+            history_folder = os.path.dirname(self.db_file)  # Use self.db_file instead of self.parent.db_file
             ensure_directory_exists(history_folder)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             csv_file = os.path.join(history_folder, f"topic_upload_history_{timestamp}.csv")
@@ -473,7 +473,6 @@ class UploadHistoryDialog:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export data:\n{str(e)}")
-
 
 class TetonHistoryDialog:
     def __init__(self, parent, history_data, db_file):
@@ -612,7 +611,7 @@ class TetonHistoryDialog:
                 return
 
             # Create CSV file path - use the same folder as the database
-            history_folder = os.path.dirname(self.parent.db_file)  # Get from parent
+            history_folder = os.path.dirname(self.db_file)  # Use self.db_file that was passed to constructor
             ensure_directory_exists(history_folder)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             csv_file = os.path.join(history_folder, f"teton_export_history_{timestamp}.csv")
