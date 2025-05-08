@@ -1,6 +1,6 @@
 # EEP Topic Upload Tool
 
-![EEP Topic Upload Tool](https://github.com/user-attachments/assets/de880305-2f24-4402-a1b9-3fdc4790e218)
+![image](https://github.com/user-attachments/assets/ccd4d5a7-bb4c-4555-9794-b9115dce30b5)
 
 
 A Python-based automation tool that streamlines the topic upload process by handling file operations and job executions automatically.
