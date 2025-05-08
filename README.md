@@ -31,16 +31,6 @@ The EEP Topic Upload & Teton Content Export Tool automates the previously manual
   - Maintains system cleanliness and prevents disk space issues
 
 
-### Usage
-1. **Prepare Files**:
-   - Download both required zip files (images and database)
-   - Place them in a single designated folder
-
-2. **Run the Tool**:
-
-3. **Using the Interface**:
-   - Click EEP Topic Upload and select the folder containing your zip files
-
 ## Benefits
 
 - **Time Savings**: Reduces time spent on topic upload compared to the manual process
